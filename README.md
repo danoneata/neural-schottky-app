@@ -1,1 +1,1 @@
-Charactizing diodes using bilinear optimization
+Characterizing Schottky diodes with bilinear optimization
