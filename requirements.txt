@@ -1,2 +1,6 @@
---index-url https://download.pytorch.org/whl/cpu
+matplotlib
+seaborn
+scikit-learn
+Pint
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch 
