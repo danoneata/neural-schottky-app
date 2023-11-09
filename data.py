@@ -5,14 +5,10 @@ from typing import List
 import numpy as np
 import pandas as pd
 
-from pint import UnitRegistry
 
 
 DATA_DIR = Path("data")
 TEMPS_DEFAULT = list(range(60, 520, 40))
-
-compute_As = lambda D: np.pi * (D / 2) ** 2  # cm²
-ureg = UnitRegistry()
 
 
 @dataclass
@@ -21,6 +17,7 @@ class Parameters:
     peff: float
     rs: List[float]
     n: float = 1.03
+
 
 
 @dataclass

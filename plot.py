@@ -126,7 +126,7 @@ def show_progress(mixture, data_orig, I_pred_all, to_plot=True):
         idxs = data["T"] == t
         data_t = data[idxs]
         I_pred_df_t = I_pred_df[idxs]
-        st.markdown(f"### Temp: {t}C")
+        st.markdown(f"### Temp: {t}K")
         col1, col2 = st.columns(2)
         plot(data_t, col1)
         plot_independent(data_t, I_pred_df_t, col2)

@@ -8,11 +8,11 @@ from torch import nn
 from torch import optim
 
 from plot import show_progress
+from constants import An, compute_As, ureg, K_DIV_Q
 
 
 # Constants
 MAX_ITER = 1_000
-K_DIV_Q = 1.3806488 / 1.602176634 * 10**-4  # V / K
 
 
 def fwd_solver_torch(f, z_init, max_iter=100, **kwargs):
@@ -44,7 +44,7 @@ class DiodeNetSolve(nn.Module):
 
     def forward(self, *, V, T, max_iter=10, **kwargs):
         n = self.n_net(T)
-        Vth = K_DIV_Q * (T + 273.15)  # V
+        Vth = K_DIV_Q * T
         Is = self.predict_Is(V=V, T=T)
         Rs = self.rs_net(T)
 
@@ -89,7 +89,7 @@ class DiodeNetSolve(nn.Module):
         return I_star
 
     def predict_I(self, *, I, V, T):
-        TK = T + 273.15  # K
+        TK = T
         Vth = K_DIV_Q * TK  # V
         Is = self.predict_Is(V=V, T=T)
         Rs = self.rs_net(T)
@@ -97,7 +97,7 @@ class DiodeNetSolve(nn.Module):
         return torch.clamp(I, min=1e-9)
 
     def log_Is(self, *, V, T):
-        TK = T + 273.15  # K
+        TK = T
         Vth = K_DIV_Q * TK  # V
         Φ = self.Φ()
         peff = self.get_peff()
@@ -106,7 +106,7 @@ class DiodeNetSolve(nn.Module):
         return torch.log(An) + torch.log(As) + 2 * torch.log(TK) - Φ / Vth - peff
 
     def predict_Is(self, *, V, T):
-        TK = T + 273.15  # K
+        TK = T
         Vth = K_DIV_Q * TK  # V
         Φ = self.Φ()
         peff = self.get_peff()
@@ -177,20 +177,22 @@ def compute_r2(true, pred):
     return 1 - ss_res / ss_tot
 
 
-def create_net(dataset, temps, params_init):
+def create_net(diameter, temps, params_init):
+    D = diameter * ureg.micrometers
+    As = compute_As(D.to("cm").magnitude)
     phi_logit = torch.logit(torch.tensor(params_init.Φ / 2))
     return DiodeNetSolve(
         Φ=PhiSigmoid(phi_logit),
         peff=params_init.peff,
         rs_net=RsBias(temps=temps, r=params_init.rs[0]),
         n_net=NFixed(n=1.03),
-        As=dataset.As,
-        An=dataset.An,
+        As=As,
+        An=An,
     )
 
 
-def create_mixture_net(dataset, temps, params_init_all):
-    nets = [create_net(dataset, temps, p) for p in params_init_all]
+def create_mixture_net(diameter, temps, params_init_all):
+    nets = [create_net(diameter, temps, p) for p in params_init_all]
     return DiodeMixtureNet(nets)
 
 
