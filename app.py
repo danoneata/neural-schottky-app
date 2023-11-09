@@ -9,7 +9,7 @@ from data import DATASETS, Parameters
 from plot import show_progress
 
 
-def set_diode_menu(i, params_init_0):
+def set_diode_menu(i, params_init_0, temperatures):
     st.markdown(f"## Diode {i + 1}")
     Φ0 = max(0.0, params_init_0.Φ - 0.1 * i)
     Φ = st.number_input(
@@ -31,15 +31,18 @@ def set_diode_menu(i, params_init_0):
         key=f"peff{i}",
     )
     rs0 = params_init_0.rs[0] + 10**i
-    rs = st.number_input(
-        "Rs",
-        value=rs0,
-        min_value=0.0,
-        step=1.0,
-        format="%.1f",
-        key=f"Rs{i}",
-    )
-    return Parameters(Φ=Φ, peff=peff, rs=[rs])
+    with st.expander("Rs"):
+        rs = [None for _ in temperatures]
+        for i, t in enumerate(temperatures):
+            rs[i] = st.number_input(
+                "Rs (Ω) at {:.1f} K".format(t),
+                value=rs0,
+                min_value=0.0,
+                step=1.0,
+                format="%.1f",
+                key=f"Rs{t}{i}",
+            )
+    return Parameters(Φ=Φ, peff=peff, rs=rs)
 
 
 PARAMS_INIT = Parameters(Φ=1.3, peff=0.29, rs=[50.0])
@@ -110,14 +113,14 @@ def main():
         )
         st.markdown("Voltage range")
         cols = st.columns(2)
-        Vmin = cols[0].number_input("V min", min_value=0.0, value=1e-9, step=0.1, format="%g")
+        Vmin = cols[0].number_input("V min", min_value=0.0, value=1e-9, step=0.001, format="%g")
         Vmax = cols[1].number_input("V max", min_value=Vmin, value=2.5, step=0.1)
         st.markdown("---")
 
         st.markdown("# Parameters")
         num_diodes = st.number_input("Number of diodes", min_value=1, value=1, step=1)
 
-        params_init_all = [set_diode_menu(i, PARAMS_INIT) for i in range(num_diodes)]
+        params_init_all = [set_diode_menu(i, PARAMS_INIT, temperatures) for i in range(num_diodes)]
 
         st.markdown("---")
         st.markdown("# Fitting")

@@ -184,7 +184,7 @@ def create_net(diameter, temps, params_init):
     return DiodeNetSolve(
         Φ=PhiSigmoid(phi_logit),
         peff=params_init.peff,
-        rs_net=RsBias(temps=temps, r=params_init.rs[0]),
+        rs_net=RsBias(temps=temps, r=params_init.rs),
         n_net=NFixed(n=1.03),
         As=As,
         An=An,
