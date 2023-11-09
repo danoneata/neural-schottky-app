@@ -9,68 +9,96 @@ from data import DATASETS, Parameters
 from plot import show_progress
 
 
-def set_diode_menu(i, params_init_0, temperatures):
+def set_diode_menu(i, params_init, temperatures):
+    to_freeze = []
+
     st.markdown(f"## Diode {i + 1}")
-    Φ0 = max(0.0, params_init_0.Φ - 0.1 * i)
-    Φ = st.number_input(
+    cols = st.columns([0.7, 0.3])
+    Φ = cols[0].number_input(
         "Φ (V)",
-        value=Φ0,
+        value=params_init.Φ,
         min_value=0.0,
         max_value=2.0,
         step=0.05,
         format="%.3f",
-        key=f"Φ{i}",
+        key=f"Φ/{i}",
     )
-    peff0 = params_init_0.peff + i
-    peff = st.number_input(
+
+    Φ_frozen = cols[1].toggle("🔒", key=f"Φ-frozen/{i}")
+    if Φ_frozen:
+        to_freeze.append("Φ")
+
+    cols = st.columns([0.7, 0.3])
+    peff = cols[0].number_input(
         "p_eff",
-        value=peff0,
+        value=params_init.peff,
         min_value=0.0,
         step=0.05,
         format="%.3f",
-        key=f"peff{i}",
+        key=f"peff={i}",
     )
-    if len(params_init_0.rs) == 1:
+
+    peff_frozen = cols[1].toggle("🔒", key=f"peff-frozen/{i}")
+    if peff_frozen:
+        to_freeze.append("peff")
+
+    if len(params_init.rs) == 1:
         index = 0
     else:
         index = 1
-    rs_type = st.radio(
-        "Rs type",
+
+    cols = st.columns([0.7, 0.3])
+    rs_type = cols[0].radio(
+        "Rs initialisation type",
         ("Same for all temperatures", "Individual per temperature"),
         index=index,
-        key=f"rs_type{i}",
+        key=f"rs_type/{i}",
     )
+
+    rs_frozen = cols[1].toggle("🔒", key=f"rs-frozen/{i}")
+    if rs_frozen:
+        to_freeze.append("rs_net")
+
     if rs_type == "Same for all temperatures":
-        rs0 = params_init_0.rs[0] + 10**i
         rs = st.number_input(
             "Rs (Ω)",
-            value=rs0,
+            value=params_init.rs[0],
             min_value=0.0,
             step=1.0,
             format="%.1f",
-            key=f"Rs{i}",
+            key=f"Rs={i}",
         )
         rs = [rs for _ in temperatures]
     else:
         with st.expander("Values"):
             rs = [0.0 for _ in temperatures]
-            for i, t in enumerate(temperatures):
+            for j, t in enumerate(temperatures):
+                rs0 = params_init.rs[j]
                 try:
-                    rs0 = params_init_0.rs[i]
+                    rs0 = params_init.rs[j]
                 except IndexError:
-                    rs0 = params_init_0.rs[0] + 10**i
-                rs[i] = st.number_input(
+                    rs0 = params_init.rs[0]
+                rs[j] = st.number_input(
                     "Rs (Ω) at {:.1f} K".format(t),
                     value=rs0,
                     min_value=0.0,
                     step=1.0,
                     format="%.1f",
-                    key=f"Rs{t}{i}",
+                    key=f"Rs={i},{j}",
                 )
-    return Parameters(Φ=Φ, peff=peff, rs=rs)
+
+    return Parameters(Φ=Φ, peff=peff, rs=rs), tuple(to_freeze)
 
 
 PARAMS_INIT = Parameters(Φ=1.3, peff=0.29, rs=[50.0])
+
+
+def get_params_init(i):
+    return Parameters(
+        Φ=max(0.0, PARAMS_INIT.Φ - 0.1 * i),
+        peff=PARAMS_INIT.peff + i,
+        rs=[PARAMS_INIT.rs[0] + 10**i],
+    )
 
 
 def load_data(uploaded_file):
@@ -102,6 +130,13 @@ def get_temps_default(data):
         return []
     temps = get_available_temps(data)
     return temps[::2]
+
+
+# @st.cache(suppress_st_warning=True)
+def show(data, mixture_net):
+    SS = 4
+    I_pred_all = predict_net(mixture_net, data[::SS])
+    show_progress(mixture_net, data[::SS], I_pred_all)
 
 
 def main():
@@ -149,26 +184,33 @@ def main():
 
         if "mixture_net" in st.session_state:
 
-            def get_params(diode):
-                return Parameters(
-                    Φ=diode.Φ().detach().item(),
-                    peff=diode.get_peff().item(),
-                    rs=diode.rs_net.rs.detach().tolist(),
-                )
+            mixture_net = st.session_state["mixture_net"]
 
-            params_init = [
-                get_params(diode) for diode in st.session_state["mixture_net"].nets
-            ]
+            def get_params(i):
+                if i < len(mixture_net.nets):
+                    diode = mixture_net.nets[i]
+                    return Parameters(
+                        Φ=diode.Φ().detach().item(),
+                        peff=diode.get_peff().item(),
+                        rs=diode.rs_net.rs.detach().tolist(),
+                    )
+                else:
+                    return get_params_init(i)
+
+            params_init = [get_params(i) for i in range(num_diodes)]
+
         else:
-            params_init = [PARAMS_INIT for _ in range(num_diodes)]
+            params_init = [get_params_init(i) for i in range(num_diodes)]
 
+        # with st.form("parameters"):
         params_init_all = [
             set_diode_menu(i, params_init[i], temperatures) for i in range(num_diodes)
         ]
+        # submitted_params_init = st.form_submit_button("Submit")
 
         st.markdown("---")
         st.markdown("# Fitting")
-        num_steps = st.number_input("Number of steps", min_value=1, value=100, step=5)
+        num_steps = st.number_input("Number of steps", min_value=1, value=10, step=5)
         plot_every_n_steps = st.number_input(
             "How often to plot",
             min_value=1,
@@ -179,10 +221,15 @@ def main():
         lr = st.number_input("Learning rate", min_value=1e-5, value=0.04, step=0.01)
 
     if data is not None:
-        st.success("Dataset uploaded successfully!")
+        # st.success("Dataset uploaded successfully!")
+        pass
     else:
         st.warning("No dataset uploaded.")
         st.stop()
+
+    # if not submitted_params_init:
+    #     st.warning("No parameters submitted.")
+    #     st.stop()
 
     if len(temperatures) == 0:
         st.warning("You need to select a temperature.")
@@ -190,7 +237,6 @@ def main():
 
     # st.dataframe(data)
 
-    SS = 4
     data = data[data["V"] >= Vmin]
     data = data[data["V"] <= Vmax]
     data = data[data["T"].isin(temperatures)]
@@ -220,11 +266,9 @@ def main():
         )
 
     if was_clicked:
-        I_pred_all = predict_net(st.session_state.mixture_net, data[::SS])
-        show_progress(st.session_state.mixture_net, data[::SS], I_pred_all)
+        show(data, st.session_state.mixture_net)
     else:
-        I_pred_all = predict_net(mixture_net, data[::SS])
-        show_progress(mixture_net, data[::SS], I_pred_all)
+        show(data, mixture_net)
 
 
 if __name__ == "__main__":

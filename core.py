@@ -177,11 +177,11 @@ def compute_r2(true, pred):
     return 1 - ss_res / ss_tot
 
 
-def create_net(diameter, temps, params_init):
+def create_net(diameter, temps, params_init, to_freeze=tuple()):
     D = diameter * ureg.micrometers
     As = compute_As(D.to("cm").magnitude)
     phi_logit = torch.logit(torch.tensor(params_init.Φ / 2))
-    return DiodeNetSolve(
+    diode = DiodeNetSolve(
         Φ=PhiSigmoid(phi_logit),
         peff=params_init.peff,
         rs_net=RsBias(temps=temps, r=params_init.rs),
@@ -189,10 +189,14 @@ def create_net(diameter, temps, params_init):
         As=As,
         An=An,
     )
+    for name, param in diode.named_parameters():
+        if name.split(".")[0] in to_freeze:
+            param.requires_grad = False
+    return diode
 
 
 def create_mixture_net(diameter, temps, params_init_all):
-    nets = [create_net(diameter, temps, p) for p in params_init_all]
+    nets = [create_net(diameter, temps, *p) for p in params_init_all]
     return DiodeMixtureNet(nets)
 
 

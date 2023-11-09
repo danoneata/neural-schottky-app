@@ -91,11 +91,12 @@ def show_progress(mixture, data_orig, I_pred_all, to_plot=True):
         - R² score: {:.2f}%
         - MAE error: {:.2f}%
         - Max error: {:.2f}%
-        - Worst point: `{}`
+        - Worst point:
             """.format(
-            r2_score, mae_score, max_error, data.iloc[worst_idx].to_dict()
+            r2_score, mae_score, max_error,#  data.iloc[worst_idx].to_dict()
         )
     )
+    st.write(data.iloc[worst_idx])
 
     st.markdown("### Optimized parameters:")
 
