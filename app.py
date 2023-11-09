@@ -13,7 +13,7 @@ def set_diode_menu(i, params_init_0, temperatures):
     st.markdown(f"## Diode {i + 1}")
     Φ0 = max(0.0, params_init_0.Φ - 0.1 * i)
     Φ = st.number_input(
-        "Φ",
+        "Φ (V)",
         value=Φ0,
         min_value=0.0,
         max_value=2.0,
@@ -30,18 +30,43 @@ def set_diode_menu(i, params_init_0, temperatures):
         format="%.3f",
         key=f"peff{i}",
     )
-    rs0 = params_init_0.rs[0] + 10**i
-    with st.expander("Rs"):
-        rs = [None for _ in temperatures]
-        for i, t in enumerate(temperatures):
-            rs[i] = st.number_input(
-                "Rs (Ω) at {:.1f} K".format(t),
-                value=rs0,
-                min_value=0.0,
-                step=1.0,
-                format="%.1f",
-                key=f"Rs{t}{i}",
-            )
+    if len(params_init_0.rs) == 1:
+        index = 0
+    else:
+        index = 1
+    rs_type = st.radio(
+        "Rs type",
+        ("Same for all temperatures", "Individual per temperature"),
+        index=index,
+        key=f"rs_type{i}",
+    )
+    if rs_type == "Same for all temperatures":
+        rs0 = params_init_0.rs[0] + 10**i
+        rs = st.number_input(
+            "Rs (Ω)",
+            value=rs0,
+            min_value=0.0,
+            step=1.0,
+            format="%.1f",
+            key=f"Rs{i}",
+        )
+        rs = [rs for _ in temperatures]
+    else:
+        with st.expander("Values"):
+            rs = [0.0 for _ in temperatures]
+            for i, t in enumerate(temperatures):
+                try:
+                    rs0 = params_init_0.rs[i]
+                except IndexError:
+                    rs0 = params_init_0.rs[0] + 10**i
+                rs[i] = st.number_input(
+                    "Rs (Ω) at {:.1f} K".format(t),
+                    value=rs0,
+                    min_value=0.0,
+                    step=1.0,
+                    format="%.1f",
+                    key=f"Rs{t}{i}",
+                )
     return Parameters(Φ=Φ, peff=peff, rs=rs)
 
 
@@ -107,20 +132,39 @@ def main():
         data = load_data(uploaded_file)
 
         temperatures = st.multiselect(
-            "Select temperatures",
+            "Temperatures",
             get_available_temps(data),
             get_temps_default(data),
         )
         st.markdown("Voltage range")
         cols = st.columns(2)
-        Vmin = cols[0].number_input("V min", min_value=0.0, value=1e-9, step=0.001, format="%g")
-        Vmax = cols[1].number_input("V max", min_value=Vmin, value=2.5, step=0.1)
+        Vmin = cols[0].number_input(
+            "Min (V)", min_value=0.0, value=1e-9, step=0.001, format="%g"
+        )
+        Vmax = cols[1].number_input("Max (V)", min_value=Vmin, value=2.5, step=0.1)
         st.markdown("---")
 
         st.markdown("# Parameters")
         num_diodes = st.number_input("Number of diodes", min_value=1, value=1, step=1)
 
-        params_init_all = [set_diode_menu(i, PARAMS_INIT, temperatures) for i in range(num_diodes)]
+        if "mixture_net" in st.session_state:
+
+            def get_params(diode):
+                return Parameters(
+                    Φ=diode.Φ().detach().item(),
+                    peff=diode.get_peff().item(),
+                    rs=diode.rs_net.rs.detach().tolist(),
+                )
+
+            params_init = [
+                get_params(diode) for diode in st.session_state["mixture_net"].nets
+            ]
+        else:
+            params_init = [PARAMS_INIT for _ in range(num_diodes)]
+
+        params_init_all = [
+            set_diode_menu(i, params_init[i], temperatures) for i in range(num_diodes)
+        ]
 
         st.markdown("---")
         st.markdown("# Fitting")
