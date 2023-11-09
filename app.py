@@ -15,6 +15,7 @@ def set_diode_menu(i, params_init_0):
         min_value=0.0,
         max_value=2.0,
         step=0.05,
+        format="%.3f",
         key=f"Φ{i}",
     )
     peff0 = params_init_0.peff + i
@@ -23,6 +24,7 @@ def set_diode_menu(i, params_init_0):
         value=peff0,
         min_value=0.0,
         step=0.05,
+        format="%.3f",
         key=f"peff{i}",
     )
     rs0 = params_init_0.rs[0] + 10**i
@@ -31,6 +33,7 @@ def set_diode_menu(i, params_init_0):
         value=rs0,
         min_value=0.0,
         step=1.0,
+        format="%.1f",
         key=f"Rs{i}",
     )
     return Parameters(Φ=Φ, peff=peff, rs=[rs])
@@ -48,6 +51,10 @@ def main():
             dataset.get_available_temps(),
             dataset.temps_default,
         )
+        st.markdown("Voltage range")
+        cols = st.columns(2)
+        Vmin = cols[0].number_input("V min", min_value=0.0, value=1e-9, step=0.1, format="%g")
+        Vmax = cols[1].number_input("V max", min_value=Vmin, value=2.5, step=0.1)
         st.markdown("---")
 
         st.markdown("# Parameters")
@@ -73,8 +80,9 @@ def main():
     data = dataset.load(temperatures)
 
     SS = 4
-    temps_np = data["T"].values
-    temps_np = np.sort(np.unique(temps_np))
+    data = data[data["V"] >= Vmin]
+    data = data[data["V"] <= Vmax]
+    data = data[data["T"].isin(temperatures)]
 
     mixture_net = create_mixture_net(
         dataset,
