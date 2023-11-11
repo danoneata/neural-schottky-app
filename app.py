@@ -73,7 +73,6 @@ def set_diode_menu(i, params_init, temperatures):
         with st.expander("Values"):
             rs = [0.0 for _ in temperatures]
             for j, t in enumerate(temperatures):
-                rs0 = params_init.rs[j]
                 try:
                     rs0 = params_init.rs[j]
                 except IndexError:
