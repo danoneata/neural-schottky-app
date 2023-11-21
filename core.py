@@ -139,6 +139,7 @@ class PhiSigmoid(nn.Module):
 class RsBias(nn.Module):
     def __init__(self, temps, r):
         super(RsBias, self).__init__()
+        self.temps = temps
         self.temp_to_idx = {t: i for i, t in enumerate(temps)}
         num_temps = len(temps)
         if isinstance(r, float):
@@ -181,10 +182,11 @@ def create_net(diameter, temps, params_init, to_freeze=tuple()):
     D = diameter * ureg.micrometers
     As = compute_As(D.to("cm").magnitude)
     phi_logit = torch.logit(torch.tensor(params_init.Φ / 2))
+    rs = [params_init.rs[t] for t in temps]
     diode = DiodeNetSolve(
         Φ=PhiSigmoid(phi_logit),
         peff=params_init.peff,
-        rs_net=RsBias(temps=temps, r=params_init.rs),
+        rs_net=RsBias(temps=temps, r=rs),
         n_net=NFixed(n=1.03),
         As=As,
         An=An,

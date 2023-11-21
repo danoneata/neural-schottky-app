@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ TEMPS_DEFAULT = list(range(60, 520, 40))
 class Parameters:
     Φ: float
     peff: float
-    rs: List[float]
+    rs: Dict[float, float]
     n: float = 1.03
 
 

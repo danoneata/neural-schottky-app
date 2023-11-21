@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 
+from toolz import first
+
 from core import create_mixture_net, predict_net, fit
 from data import DATASETS, Parameters
 from plot import show_progress
@@ -60,24 +62,26 @@ def set_diode_menu(i, params_init, temperatures):
         to_freeze.append("rs_net")
 
     if rs_type == "Same for all temperatures":
+        rs0 = first(params_init.rs.values())
         rs = st.number_input(
             "Rs (Ω)",
-            value=params_init.rs[0],
+            value=rs0,
             min_value=0.0,
             step=1.0,
             format="%.1f",
             key=f"Rs={i}",
         )
-        rs = [rs for _ in temperatures]
+        rs = {t: rs for t in temperatures}
     else:
         with st.expander("Values"):
-            rs = [0.0 for _ in temperatures]
+            rs = {t: 0.0 for t in temperatures}
             for j, t in enumerate(temperatures):
                 try:
-                    rs0 = params_init.rs[j]
-                except IndexError:
-                    rs0 = params_init.rs[0]
-                rs[j] = st.number_input(
+                    rs0 = params_init.rs[t]
+                except KeyError:
+                    t_closest = min(params_init.rs.keys(), key=lambda x: abs(x - t))
+                    rs0 = params_init.rs[t_closest]
+                rs[t] = st.number_input(
                     "Rs (Ω) at {:.1f} K".format(t),
                     value=rs0,
                     min_value=0.0,
@@ -89,14 +93,16 @@ def set_diode_menu(i, params_init, temperatures):
     return Parameters(Φ=Φ, peff=peff, rs=rs), tuple(to_freeze)
 
 
-PARAMS_INIT = Parameters(Φ=1.3, peff=0.29, rs=[50.0])
+DEFAULT_Φ = 1.3
+DEFAULT_PEFF = 0.29
+DEFAULT_RS = 50.0
 
 
-def get_params_init(i):
+def get_params_init(temperatures, i):
     return Parameters(
-        Φ=max(0.0, PARAMS_INIT.Φ - 0.1 * i),
-        peff=PARAMS_INIT.peff + i,
-        rs=[PARAMS_INIT.rs[0] + 10**i],
+        Φ=max(0.0, DEFAULT_Φ - 0.1 * i),
+        peff=DEFAULT_PEFF + i,
+        rs={t: DEFAULT_RS + 10**i for t in temperatures},
     )
 
 
@@ -170,6 +176,8 @@ def main():
             get_available_temps(data),
             get_temps_default(data),
         )
+        temperatures = sorted(temperatures)
+
         st.markdown("Voltage range")
         cols = st.columns(2)
         Vmin = cols[0].number_input(
@@ -188,18 +196,21 @@ def main():
             def get_params(i):
                 if i < len(mixture_net.nets):
                     diode = mixture_net.nets[i]
+                    ts = diode.rs_net.temps
+                    rs = diode.rs_net.rs.detach().tolist()
+                    rs_dict = {t: r for t, r in zip(ts, rs)}
                     return Parameters(
                         Φ=diode.Φ().detach().item(),
                         peff=diode.get_peff().item(),
-                        rs=diode.rs_net.rs.detach().tolist(),
+                        rs=rs_dict,
                     )
                 else:
-                    return get_params_init(i)
+                    return get_params_init(temperatures, i)
 
             params_init = [get_params(i) for i in range(num_diodes)]
 
         else:
-            params_init = [get_params_init(i) for i in range(num_diodes)]
+            params_init = [get_params_init(temperatures, i) for i in range(num_diodes)]
 
         # with st.form("parameters"):
         params_init_all = [
