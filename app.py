@@ -44,7 +44,7 @@ def set_diode_menu(i, params_init, temperatures):
     if peff_frozen:
         to_freeze.append("peff")
 
-    if len(params_init.rs) == 1:
+    if len(params_init.rs) in {0, 1}:
         index = 0
     else:
         index = 1
@@ -62,7 +62,10 @@ def set_diode_menu(i, params_init, temperatures):
         to_freeze.append("rs_net")
 
     if rs_type == "Same for all temperatures":
-        rs0 = first(params_init.rs.values())
+        try:
+            rs0 = first(params_init.rs.values())
+        except StopIteration:
+            rs0 = DEFAULT_RS
         rs = st.number_input(
             "Rs (Ω)",
             value=rs0,
@@ -229,6 +232,7 @@ def main():
             help="Generates plots every n steps.",
         )
         lr = st.number_input("Learning rate", min_value=1e-5, value=0.04, step=0.01)
+        differentiation_type = st.selectbox("Type of differentiation", ["unrolled", "implicit"])
 
     if data is not None:
         # st.success("Dataset uploaded successfully!")
@@ -254,12 +258,14 @@ def main():
     mixture_net = create_mixture_net(
         diameter,
         temperatures,
+        differentiation_type,
         params_init_all,
     )
 
     if "mixture_net" not in st.session_state:
         st.session_state.mixture_net = mixture_net
         st.session_state.iter = iter
+        st.session_state.time_spent = 0.0
 
     container_fit = st.empty()
 
@@ -276,6 +282,7 @@ def main():
         )
 
     if was_clicked:
+        st.markdown("Time spent: {:.3}s".format(st.session_state.time_spent))
         show(data, st.session_state.mixture_net)
     else:
         show(data, mixture_net)

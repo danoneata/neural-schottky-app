@@ -1,3 +1,6 @@
+import pdb
+import time
+
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,34 +27,29 @@ def fwd_solver_torch(f, z_init, max_iter=100, **kwargs):
     return z
 
 
-class DiodeNetSolve(nn.Module):
-    """Predict fixed-point solution of the diode equation."""
-
-    def __init__(self, *, Φ, peff, rs_net, n_net, As, An):
+class ExpLinear(nn.Module):
+    def __init__(self):
         super().__init__()
-        # parameters
-        self.Φ = Φ
-        self.peff = nn.Parameter(torch.tensor(peff))
-        # networks
-        self.rs_net = rs_net
-        self.n_net = n_net
-        # fixed values
-        self.As = As
-        self.An = An
 
-    def get_peff(self):
-        return torch.clamp(self.peff, min=0)
+    def forward(self, x, a):
+        return a - torch.exp(x)
 
-    def forward(self, *, V, T, max_iter=10, **kwargs):
-        n = self.n_net(T)
-        Vth = K_DIV_Q * T
-        Is = self.predict_Is(V=V, T=T)
-        Rs = self.rs_net(T)
 
-        nVth = n * Vth
-        log_term = torch.log(Rs) + torch.log(Is) - torch.log(nVth)
-        x = (V + Rs * Is) / nVth + log_term
+class SolveExpLinear(nn.Module):
+    """Solver of the equation:
 
+    $$
+    y + e^y - x = 0
+    $$
+
+    using Halley's method.
+
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, max_iter=10):
         def f(y, x):
             ey = torch.exp(y)
             ey1 = ey + 1
@@ -78,12 +76,84 @@ class DiodeNetSolve(nn.Module):
         idxs2 = ~idxs1
         y_star = torch.zeros_like(y_init)
         y_star[idxs1] = fwd_solver_torch(
-            f, y_init[idxs1], max_iter=max_iter, x=x[idxs1]
+            f,
+            y_init[idxs1],
+            max_iter=max_iter,
+            x=x[idxs1],
         )
         y_star[idxs2] = fwd_solver_torch(
-            g, y_init[idxs2], max_iter=max_iter, x=x[idxs2]
+            g,
+            y_init[idxs2],
+            max_iter=max_iter,
+            x=x[idxs2],
         )
 
+        return y_star
+
+
+class SolveExpLinearImplicit(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.solver = SolveExpLinear()
+
+    def forward(self, x, max_iter=10):
+        with torch.no_grad():
+            y = self.solver(x, max_iter=max_iter)
+
+        y = x - torch.exp(y)
+
+        def backward_hook(grad):
+            # idxs1 = x > 0
+            # idxs2 = ~idxs1
+            # grad_new = torch.zeros_like(grad)
+            # grad_new[idxs1] = grad[idxs1] / (1 + torch.exp(y[idxs1]))
+            # grad_new[idxs2] = grad[idxs2] * torch.exp(-y[idxs2]) / (1 + torch.exp(-y[idxs2]))
+            # return grad_new
+            return grad / (1 + torch.exp(y))
+
+        y.register_hook(backward_hook)
+
+        return y
+
+
+class DiodeNetSolve(nn.Module):
+    """Predict fixed-point solution of the diode equation."""
+
+    SOLVERS = {
+        "unrolled": SolveExpLinear,
+        "implicit": SolveExpLinearImplicit,
+    }
+
+    def __init__(
+        self, *, Φ, peff, rs_net, n_net, As, An, differentiation_type, max_iter=10
+    ):
+        super().__init__()
+        # parameters
+        self.Φ = Φ
+        self.peff = nn.Parameter(torch.tensor(peff))
+        # networks
+        self.rs_net = rs_net
+        self.n_net = n_net
+        # fixed values
+        self.As = As
+        self.An = An
+
+        self.solve_exp_linear = self.SOLVERS[differentiation_type]()
+
+    def get_peff(self):
+        return torch.clamp(self.peff, min=0)
+
+    def forward(self, *, V, T, max_iter=10, **kwargs):
+        n = self.n_net(T)
+        Vth = K_DIV_Q * T
+        Is = self.predict_Is(V=V, T=T)
+        Rs = self.rs_net(T)
+
+        nVth = n * Vth
+        log_term = torch.log(Rs) + torch.log(Is) - torch.log(nVth)
+
+        x = (V + Rs * Is) / nVth + log_term
+        y_star = self.solve_exp_linear(x, max_iter=max_iter)
         I_star = (V - nVth * (y_star - log_term)) / Rs
 
         return I_star
@@ -178,7 +248,7 @@ def compute_r2(true, pred):
     return 1 - ss_res / ss_tot
 
 
-def create_net(diameter, temps, params_init, to_freeze=tuple()):
+def create_net(diameter, temps, differentiation_type, params_init, to_freeze=tuple()):
     D = diameter * ureg.micrometers
     As = compute_As(D.to("cm").magnitude)
     phi_logit = torch.logit(torch.tensor(params_init.Φ / 2))
@@ -190,6 +260,7 @@ def create_net(diameter, temps, params_init, to_freeze=tuple()):
         n_net=NFixed(n=1.03),
         As=As,
         An=An,
+        differentiation_type=differentiation_type,
     )
     for name, param in diode.named_parameters():
         if name.split(".")[0] in to_freeze:
@@ -197,8 +268,10 @@ def create_net(diameter, temps, params_init, to_freeze=tuple()):
     return diode
 
 
-def create_mixture_net(diameter, temps, params_init_all):
-    nets = [create_net(diameter, temps, *p) for p in params_init_all]
+def create_mixture_net(diameter, temps, differentiation_type, params_init_all):
+    nets = [
+        create_net(diameter, temps, differentiation_type, *p) for p in params_init_all
+    ]
     return DiodeMixtureNet(nets)
 
 
@@ -222,6 +295,8 @@ def fit(mixture, data, container, num_steps=100, plot_every_n_steps=10, *, lr):
     SS = 4
     mixture.train()
 
+    st.session_state.time_spent = 0.0
+
     for i in range(num_steps):
         data_ss = data
         T = torch.tensor(data_ss["T"].to_numpy())
@@ -244,13 +319,18 @@ def fit(mixture, data, container, num_steps=100, plot_every_n_steps=10, *, lr):
             # print("loss: {:.9f}".format(loss.item()))
             return loss
 
+        time_s = time.time()
         optimizer.step(closure)
+        time_e = time.time()
+
         st.session_state.mixture_net = mixture
         st.session_state.iter = i
+        st.session_state.time_spent += time_e - time_s
 
         with container.container():
             to_plot = (i + 1) % plot_every_n_steps == 0
             st.markdown(f"## Step: {i + 1}")
+            st.markdown("Time spent: {:.3}s".format(st.session_state.time_spent))
             I_pred_all = predict_net(mixture, data[::SS])
             show_progress(mixture, data[::SS], I_pred_all, to_plot=to_plot)
             mixture.train()
